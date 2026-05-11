@@ -297,10 +297,50 @@ def get_system_identity(snapshot):
 def get_password_policy(snapshot):
     info = {}
     try:
-        # TODO Milestone 3: parse `net accounts` and populate the 7 fields
-        # listed in the comment block above. Use run_command() to invoke
-        # the command, then walk its output line by line.
-        pass
+        # Define the mapping from net accounts labels to JSON field names.
+        # This lets us parse the output in a loop instead of writing each
+        # field individually, which is more concise and easier to maintain.
+        label_to_field = {
+            "Minimum password length": "minimum_password_length",
+            "Minimum password age (days)": "minimum_password_age_days",
+            "Maximum password age (days)": "maximum_password_age_days",
+            "Length of password history maintained": "password_history_length",
+            "Lockout threshold": "lockout_threshold",
+            "Lockout duration (minutes)": "lockout_duration_minutes",
+            "Lockout observation window (minutes)": "lockout_observation_window_minutes",
+        }
+
+        # Run the command once and inspect its output line by line.
+        output = run_command(["net", "accounts"])
+        
+        # Initialize all expected fields to None so missing lines still produce
+        # the required keys with None values rather than leaving them out.
+        for field in label_to_field.values():
+            info[field] = None
+
+        # Walk through each line from the net accounts output.
+        for line in output.splitlines():
+            # Split on the first colon only, because some labels may contain a colon.
+            parts = line.split(":", 1)
+            if len(parts) != 2:
+                continue
+            label = parts[0].strip()
+            value_text = parts[1].strip()
+
+            if label not in label_to_field:
+                continue
+
+            # If the command says "Never", we store None. This preserves the
+            # semantic difference between "no limit" and a numeric value.
+            if value_text.lower() == "never":
+                info[label_to_field[label]] = None
+                continue
+
+            # Convert numeric values to int. If parsing fails, leave None.
+            try:
+                info[label_to_field[label]] = int(value_text)
+            except ValueError:
+                info[label_to_field[label]] = None
     except Exception as e:
         add_warning(snapshot, "password_policy failed: " + str(e))
     return info
